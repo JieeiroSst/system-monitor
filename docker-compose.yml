@@ -1,0 +1,170 @@
+version: "3"
+
+services:
+  influx:
+    image: influxdb:1.7
+    labels:
+      - "traefik.http.routers.influx-ssl.entryPoints=port8086"
+      - "traefik.http.routers.influx-ssl.rule=host(`influx.mydomain.com`)"
+      - "traefik.http.routers.influx-ssl.tls=true"
+      - "traefik.http.routers.influx-ssl.tls.certResolver=le-ssl"
+      - "traefik.http.routers.influx-ssl.service=influx-ssl"
+      - "traefik.http.services.influx-ssl.loadBalancer.server.port=8086"
+    restart: always
+    container_name: influxdb
+    volumes:
+      - influx-data:/var/lib/influxdb
+    environment:
+      # - INFLUXDB_DB=
+      - INFLUXDB_HTTP_ENABLED=true
+      - INFLUXDB_HTTP_AUTH_ENABLED=true
+
+      # - INFLUXDB_ADMIN_USER=
+      # - INFLUXDB_ADMIN_PASSWORD=
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    expose:
+      - 9090
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    volumes:
+        - /proc:/host/proc:ro
+        - /sys:/host/sys:ro
+        - /:/rootfs:ro
+    command:
+        - '--path.procfs=/host/proc'
+        - '--path.rootfs=/rootfs'
+        - '--path.sysfs=/host/sys'
+        - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    expose:
+        - 9100
+
+  grafana:
+    labels:
+      # SSL redirect requires a separate router (https://github.com/containous/traefik/issues/4688#issuecomment-477800500)
+      - "traefik.http.routers.grafana.entryPoints=port80"
+      - "traefik.http.routers.grafana.rule=host(`grafana.mydomain.com`)"
+      - "traefik.http.middlewares.grafana-redirect.redirectScheme.scheme=https"
+      - "traefik.http.middlewares.grafana-redirect.redirectScheme.permanent=true"
+      - "traefik.http.routers.grafana.middlewares=grafana-redirect"
+      # SSL endpoint
+      - "traefik.http.routers.grafana-ssl.entryPoints=port443"
+      - "traefik.http.routers.grafana-ssl.rule=host(`grafana.mydomain.com`)"
+      - "traefik.http.routers.grafana-ssl.tls=true"
+      - "traefik.http.routers.grafana-ssl.tls.certResolver=le-ssl"
+      - "traefik.http.routers.grafana-ssl.service=grafana-ssl"
+      - "traefik.http.services.grafana-ssl.loadBalancer.server.port=3000"
+    image: grafana/grafana
+    container_name: grafana
+    restart: always
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SERVER_ROOT_URL=https://grafana.mydomain.com
+      - GF_SERVER_DOMAIN=grafana.mydomain.com
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+        - '6831:6831/udp'
+        - '16686:16686'
+
+  hotrod:
+    image: jaegertracing/example-hotrod:latest
+    container_name: hotrod
+    ports:
+        - '8082:8080'
+    command: ['all']
+    environment:
+        - JAEGER_AGENT_HOST=jaeger
+        - JAEGER_AGENT_PORT=6831
+    depends_on:
+        - jaeger
+
+  elasticsearch:
+    build: ./elasticsearch
+    container_name: elasticsearch
+    restart: always
+    ports:
+        - 9200:9200
+    volumes:
+        - ./elasticsearch-data:/usr/share/elasticsearch/data
+          
+  kibana:
+    build: ./kibana
+    container_name: kibana
+    restart: always
+    ports:
+        - 5601:5601
+
+  zookeeper:
+    image: debezium/zookeeper:1.0
+    container_name: zookeeper
+    restart: always
+    ports:
+        - 2181:2181
+        - 2888:2888
+        - 3888:3888
+    
+  kafka:
+    image: debezium/kafka:1.0
+    container_name: kafka
+    restart: always
+    ports:
+        - 9092:9092
+    links:
+        - zookeeper
+    environment:
+        - ZOOKEEPER_CONNECT=zookeeper:2181
+
+  postgres:
+    build: ./postgres
+    container_name: postgres
+    restart: always
+    ports:
+        - 5432:5432
+    environment:
+        - POSTGRES_USER=postgres
+        - POSTGRES_PASSWORD=postgres
+        - POSTGRES_DATABASE=test_db
+        
+  connect:
+    build: ./debezium-jdbc-es
+    restart: always
+    ports:
+        - 8083:8083
+        - 5005:5005
+    links:
+        - kafka
+        - postgres
+        - elasticsearch
+    environment:
+        - BOOTSTRAP_SERVERS=kafka:9092
+        - GROUP_ID=1
+        - CONFIG_STORAGE_TOPIC=my_connect_configs
+        - OFFSET_STORAGE_TOPIC=my_connect_offsets
+
+
+volumes:
+  traefik-data:
+  influx-data:
+  grafana-data:
+  prometheus_data:
+  elasticsearch-data:
