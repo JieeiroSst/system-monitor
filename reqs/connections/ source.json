@@ -1,5 +1,5 @@
 {
-    "name": "test_db-connector",
+    "name": "db-connector",
     "config": {
       "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
       "tasks.max": "1",
@@ -8,11 +8,11 @@
       "database.user": "postgres",
       "database.password": "postgres",
       "database.server.id": "184054",
-      "database.dbname": "test_db",
+      "database.dbname": "db",
       "database.server.name": "dbserver1",
-      "database.whitelist": "test_db",
+      "database.whitelist": "db",
       "database.history.kafka.bootstrap.servers": "kafka:9092",
-      "database.history.kafka.topic": "schema-changes.test_db",
+      "database.history.kafka.topic": "schema-changes.db",
       "transforms": "route",
       "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
       "transforms.route.regex": "([^.]+)\\.([^.]+)\\.([^.]+)",
